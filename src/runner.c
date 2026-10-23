@@ -1209,74 +1209,45 @@ void Runner_draw(Runner* runner) {
     // Draw foreground backgrounds (in front of instances, behind GUI)
     drawGMS1Backgrounds(runner, true);
 
-    // APARTMENT STORY - VISUAL DIAGNOSTIC ONLY (REMOVE AFTER TESTING).
-    // This deliberately draws two known bitmap sprites on top of room content,
-    // and repeats the default sprite draw for the player/door instances.
-    // It isolates texture loading from Draw events and runtime-layer handling.
-    // It does NOT fix the underlying issue or guarantee correct animation.
-    if (runner->renderer != nullptr && runner->dataWin != nullptr && runner->currentRoom != nullptr) {
-        DataWin* diagnosticData = runner->dataWin;
-        int32_t diagnosticPlayerSprite = -1;
-        int32_t diagnosticDoorSprite = -1;
-
-        for (uint32_t si = 0; si < diagnosticData->sprt.count; ++si) {
-            const char* name = diagnosticData->sprt.sprites[si].name;
-            if (name == nullptr) continue;
-            if (strcmp(name, "spr_player_idle") == 0) diagnosticPlayerSprite = (int32_t) si;
-            else if (strcmp(name, "spr_room_door") == 0) diagnosticDoorSprite = (int32_t) si;
+    // Apartment Story compatibility experiment (not a general GameMaker fix).
+    // The previous visual probe forced imageIndex=0 and drew oversized sprites;
+    // this alternative redraws only selected live instances in room coordinates,
+    // retaining their actual animation frame, scale, alpha and tint.
+    // It can reveal missing instances, but overdraw and intentionally hidden
+    // sprites are possible. Remove this block after diagnosing the real cause.
+    if (runner->renderer != nullptr && runner->dataWin != nullptr &&
+        runner->dataWin->sprt.count > 0 && runner->dataWin->objt.count > 0) {
+        bool isApartmentStory = false;
+        for (uint32_t si = 0; si < runner->dataWin->sprt.count; ++si) {
+            const char* spriteName = runner->dataWin->sprt.sprites[si].name;
+            if (spriteName != nullptr && strcmp(spriteName, "spr_player_idle") == 0) {
+                isApartmentStory = true;
+                break;
+            }
         }
+        if (isApartmentStory) {
+            for (int32_t oi = 0; oi < (int32_t) arrlen(runner->instances); ++oi) {
+                Instance* inst = runner->instances[oi];
+                if (inst == nullptr || inst->destroyed || !inst->active) continue;
+                if (inst->objectIndex < 0 || (uint32_t) inst->objectIndex >= runner->dataWin->objt.count) continue;
+                if (inst->spriteIndex < 0 || (uint32_t) inst->spriteIndex >= runner->dataWin->sprt.count) continue;
 
-        // Test A: fixed-location asset probe near the top-left of the room view.
-        // Ignore object instances entirely. If this appears, sprite data and
-        // the basic sprite draw path work independently of object events.
-        GMLCamera* diagnosticCamera = Runner_getCameraForView(runner, runner->viewCurrent);
-        float probeX = diagnosticCamera != nullptr ? diagnosticCamera->viewX + 72.0f : 72.0f;
-        float probeY = diagnosticCamera != nullptr ? diagnosticCamera->viewY + 140.0f : 140.0f;
-        if (diagnosticPlayerSprite >= 0) {
-            Renderer_drawSpriteExt(runner->renderer, diagnosticPlayerSprite, 0,
-                probeX, probeY, 2.0f, 2.0f, 0.0f, 0xFFFFFF, 1.0f);
-        }
-        if (diagnosticDoorSprite >= 0) {
-            Renderer_drawSpriteExt(runner->renderer, diagnosticDoorSprite, 0,
-                probeX + 105.0f, probeY, 2.0f, 2.0f, 0.0f, 0xFFFFFF, 1.0f);
-        }
+                const char* objectName = runner->dataWin->objt.objects[inst->objectIndex].name;
+                if (objectName == nullptr) continue;
+                bool isTarget = strcmp(objectName, "obj_character_player") == 0 ||
+                    strcmp(objectName, "obj_door") == 0 ||
+                    strcmp(objectName, "obj_character_mom") == 0 ||
+                    strcmp(objectName, "obj_character_husband") == 0;
+                if (!isTarget) continue;
 
-        // Test B: redraw selected live objects at their real in-room position.
-        // This bypasses custom Draw events and runtime layer visibility.
-        // Temporary frame/alpha overrides are immediately restored.
-        for (int32_t oi = 0; oi < (int32_t) arrlen(runner->instances); ++oi) {
-            Instance* inst = runner->instances[oi];
-            if (inst == nullptr || inst->destroyed || !inst->active) continue;
-            if (inst->objectIndex < 0 || (uint32_t) inst->objectIndex >= diagnosticData->objt.count) continue;
-            if (inst->spriteIndex < 0 || (uint32_t) inst->spriteIndex >= diagnosticData->sprt.count) continue;
-
-            const char* objectName = diagnosticData->objt.objects[inst->objectIndex].name;
-            if (objectName == nullptr) continue;
-            bool probeObject = strcmp(objectName, "obj_character_player") == 0 ||
-                strcmp(objectName, "obj_door") == 0 ||
-                strcmp(objectName, "obj_character_mom") == 0 ||
-                strcmp(objectName, "obj_character_husband") == 0;
-            if (!probeObject) continue;
-
-            bool oldVisible = inst->visible;
-            GMLReal oldIndex = inst->imageIndex;
-            GMLReal oldAlpha = inst->imageAlpha;
-            int32_t oldBlend = inst->imageBlend;
-            GMLReal oldXscale = inst->imageXscale;
-            GMLReal oldYscale = inst->imageYscale;
-            inst->visible = true;
-            inst->imageIndex = 0.0f;
-            inst->imageAlpha = 1.0f;
-            inst->imageBlend = 0xFFFFFF;
-            if (inst->imageXscale == 0.0f) inst->imageXscale = 1.0f;
-            if (inst->imageYscale == 0.0f) inst->imageYscale = 1.0f;
-            Renderer_drawSelf(runner->renderer, inst);
-            inst->visible = oldVisible;
-            inst->imageIndex = oldIndex;
-            inst->imageAlpha = oldAlpha;
-            inst->imageBlend = oldBlend;
-            inst->imageXscale = oldXscale;
-            inst->imageYscale = oldYscale;
+                // Bypass visibility for this controlled test only. No changes
+                // to imageIndex/imageSpeed, so a frozen animation stays frozen
+                // and can be distinguished from a missing normal Draw call.
+                bool originalVisible = inst->visible;
+                inst->visible = true;
+                Renderer_drawSelf(runner->renderer, inst);
+                inst->visible = originalVisible;
+            }
         }
     }
 }
