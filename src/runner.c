@@ -1208,48 +1208,6 @@ void Runner_draw(Runner* runner) {
 
     // Draw foreground backgrounds (in front of instances, behind GUI)
     drawGMS1Backgrounds(runner, true);
-
-    // Apartment Story compatibility experiment (not a general GameMaker fix).
-    // The previous visual probe forced imageIndex=0 and drew oversized sprites;
-    // this alternative redraws only selected live instances in room coordinates,
-    // retaining their actual animation frame, scale, alpha and tint.
-    // It can reveal missing instances, but overdraw and intentionally hidden
-    // sprites are possible. Remove this block after diagnosing the real cause.
-    if (runner->renderer != nullptr && runner->dataWin != nullptr &&
-        runner->dataWin->sprt.count > 0 && runner->dataWin->objt.count > 0) {
-        bool isApartmentStory = false;
-        for (uint32_t si = 0; si < runner->dataWin->sprt.count; ++si) {
-            const char* spriteName = runner->dataWin->sprt.sprites[si].name;
-            if (spriteName != nullptr && strcmp(spriteName, "spr_player_idle") == 0) {
-                isApartmentStory = true;
-                break;
-            }
-        }
-        if (isApartmentStory) {
-            for (int32_t oi = 0; oi < (int32_t) arrlen(runner->instances); ++oi) {
-                Instance* inst = runner->instances[oi];
-                if (inst == nullptr || inst->destroyed || !inst->active) continue;
-                if (inst->objectIndex < 0 || (uint32_t) inst->objectIndex >= runner->dataWin->objt.count) continue;
-                if (inst->spriteIndex < 0 || (uint32_t) inst->spriteIndex >= runner->dataWin->sprt.count) continue;
-
-                const char* objectName = runner->dataWin->objt.objects[inst->objectIndex].name;
-                if (objectName == nullptr) continue;
-                bool isTarget = strcmp(objectName, "obj_character_player") == 0 ||
-                    strcmp(objectName, "obj_door") == 0 ||
-                    strcmp(objectName, "obj_character_mom") == 0 ||
-                    strcmp(objectName, "obj_character_husband") == 0;
-                if (!isTarget) continue;
-
-                // Bypass visibility for this controlled test only. No changes
-                // to imageIndex/imageSpeed, so a frozen animation stays frozen
-                // and can be distinguished from a missing normal Draw call.
-                bool originalVisible = inst->visible;
-                inst->visible = true;
-                Renderer_drawSelf(runner->renderer, inst);
-                inst->visible = originalVisible;
-            }
-        }
-    }
 }
 
 // Open a GUI-space draw pass and remember its parameters so surface_reset_target can restore the GUI target + projection when the surface stack pops back to empty mid-pass.
@@ -1279,6 +1237,43 @@ void Runner_drawGUI(Runner* runner, int32_t windowW, int32_t windowH, int32_t ta
     fireDrawSubtype(runner, drawables, drawableCount, DRAW_GUI_BEGIN);
     fireDrawSubtype(runner, drawables, drawableCount, DRAW_GUI);
     fireDrawSubtype(runner, drawables, drawableCount, DRAW_GUI_END);
+
+    // Apartment Story diagnostic: test texture frame 0, frame 1, and a timed
+    // alternation independently of instance animation and custom Draw events.
+    // Diagnostic only: remove after identifying the failing path.
+    if (runner->renderer != nullptr && runner->dataWin != nullptr) {
+        DataWin* dw = runner->dataWin;
+        int32_t playerWalk = -1;
+        int32_t momWalk = -1;
+        int32_t door = -1;
+        for (uint32_t si = 0; si < dw->sprt.count; ++si) {
+            const char* name = dw->sprt.sprites[si].name;
+            if (name == nullptr) continue;
+            if (strcmp(name, "spr_player_walk") == 0) playerWalk = (int32_t) si;
+            else if (strcmp(name, "spr_mom_walk") == 0) momWalk = (int32_t) si;
+            else if (strcmp(name, "spr_room_door") == 0) door = (int32_t) si;
+        }
+        if (playerWalk >= 0 && momWalk >= 0 && door >= 0) {
+            const uint64_t flip = (nowNanos() / 500000000ULL) % 2ULL;
+            int32_t spriteIds[3] = {playerWalk, momWalk, door};
+            float guiX = (float) guiW * 0.07f;
+            float guiY = (float) guiH * 0.79f;
+            for (int row = 0; row < 3; ++row) {
+                const int32_t spriteIndex = spriteIds[row];
+                const Sprite* sprite = &dw->sprt.sprites[spriteIndex];
+                if (sprite->textureCount < 2) continue;
+                // Three columns: first frame, second frame, and a timed
+                // alternation of the two frames. Rows: player, NPC, door.
+                const float y = guiY - (float)(2 - row) * 110.0f;
+                for (int col = 0; col < 3; ++col) {
+                    int32_t subimg = col < 2 ? col : (int32_t)flip;
+                    Renderer_drawSpriteExt(runner->renderer, spriteIndex,
+                        subimg, guiX + (float)col * 110.0f, y,
+                        1.4f, 1.4f, 0.0f, 0xFFFFFF, 1.0f);
+                }
+            }
+        }
+    }
 
     //Rendering cursor_sprite
     if (runner->cursorSprite >= 0 && (uint32_t)runner->cursorSprite < runner->dataWin->sprt.count) {
