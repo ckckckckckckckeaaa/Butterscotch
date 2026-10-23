@@ -9703,6 +9703,22 @@ static RValue builtin_window_get_height(VMContext* ctx, MAYBE_UNUSED RValue* arg
     return RValue_makeReal((GMLReal) ctx->dataWin->gen8.defaultWindowHeight);
 }
 
+// Window-relative mouse coordinates. The Android input layer owns normalizedX/Y.
+// This makes the GameMaker VM builtins available, but does not itself generate touch events.
+static RValue builtin_window_mouse_get_x(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
+    Runner* runner = ctx->runner;
+    if (runner == nullptr || runner->mouse == nullptr) return RValue_makeReal(0.0);
+    GMLReal width = RValue_toReal(builtin_window_get_width(ctx, nullptr, 0));
+    return RValue_makeReal(runner->mouse->normalizedX * width);
+}
+
+static RValue builtin_window_mouse_get_y(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
+    Runner* runner = ctx->runner;
+    if (runner == nullptr || runner->mouse == nullptr) return RValue_makeReal(0.0);
+    GMLReal height = RValue_toReal(builtin_window_get_height(ctx, nullptr, 0));
+    return RValue_makeReal(runner->mouse->normalizedY * height);
+}
+
 static RValue builtin_window_get_x(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
     Runner* runner = ctx->runner;
     if (runner != nullptr && runner->getWindowPosition != nullptr) {
@@ -24916,6 +24932,8 @@ void VMBuiltins_registerAll(VMContext* ctx) {
     VM_registerBuiltin(ctx, "window_get_caption", builtin_window_get_caption);
     VM_registerBuiltin(ctx, "window_get_width", builtin_window_get_width);
     VM_registerBuiltin(ctx, "window_get_height", builtin_window_get_height);
+    VM_registerBuiltin(ctx, "window_mouse_get_x", builtin_window_mouse_get_x);
+    VM_registerBuiltin(ctx, "window_mouse_get_y", builtin_window_mouse_get_y);
     VM_registerBuiltin(ctx, "window_get_x", builtin_window_get_x);
     VM_registerBuiltin(ctx, "window_get_y", builtin_window_get_y);
     VM_registerBuiltin(ctx, "window_set_position", builtin_window_set_position);
